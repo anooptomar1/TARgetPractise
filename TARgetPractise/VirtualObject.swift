@@ -45,11 +45,12 @@ class VirtualObject: SCNNode {
 		let wrapperNode = SCNNode()
 
 		for child in virtualObjectScene.rootNode.childNodes {
-			child.geometry?.firstMaterial?.lightingModel = .physicallyBased
+			//child.geometry?.firstMaterial?.lightingModel = .physicallyBased
 			child.movabilityHint = .movable
-            child.name = "Mushroom"
+            child.name = "\(modelName)"
             child.physicsBody = SCNPhysicsBody(type: .static, shape: nil)
             child.physicsBody?.categoryBitMask = BoxBodyType.barrier.rawValue
+            //child.constraints = [SCNBillboardConstraint()]
 			wrapperNode.addChildNode(child)
 		}
         

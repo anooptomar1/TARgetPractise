@@ -9,7 +9,7 @@ enum BoxBodyType : Int {
     case barrier = 2
 }
 
-class MainViewController: UIViewController, SCNPhysicsContactDelegate {
+class MainViewController: UIViewController, SCNPhysicsContactDelegate, ARSCNViewDelegate {
 	var dragOnInfinitePlanesEnabled = false
 	var currentGesture: Gesture?
 
@@ -26,6 +26,10 @@ class MainViewController: UIViewController, SCNPhysicsContactDelegate {
 
 	let DEFAULT_DISTANCE_CAMERA_TO_OBJECTS = Float(10)
     var lastContactNode :SCNNode!
+    var count = 1
+    var x = 0.1
+    var y = 0.1
+    var z = 0.1
     
 	override func viewDidLoad() {
         super.viewDidLoad()
@@ -38,7 +42,7 @@ class MainViewController: UIViewController, SCNPhysicsContactDelegate {
 		updateSettings()
 		resetVirtualObject()
         registerGestureRecognizers()
-        sceneView.scene.physicsWorld.contactDelegate = self
+        
     }
 
     private func registerGestureRecognizers() {
@@ -57,11 +61,13 @@ class MainViewController: UIViewController, SCNPhysicsContactDelegate {
         translation.columns.3.z = -0.3
         
         let box = SCNBox(width: 0.05, height: 0.05, length: 0.05, chamferRadius: 0)
+        let sphere = SCNSphere(radius: 0.05)
+        
         
         let material = SCNMaterial()
         material.diffuse.contents = UIColor.yellow
         
-        let boxNode = SCNNode(geometry: box)
+        let boxNode = SCNNode(geometry: sphere)
         boxNode.name = "Bullet"
         boxNode.physicsBody = SCNPhysicsBody(type: .dynamic, shape: nil)
         boxNode.physicsBody?.categoryBitMask = BoxBodyType.bullet.rawValue
@@ -79,15 +85,25 @@ class MainViewController: UIViewController, SCNPhysicsContactDelegate {
     
     func physicsWorld(_ world: SCNPhysicsWorld, didBegin contact: SCNPhysicsContact) {
         
-        //var contactNode :SCNNode!
+        //lastContactNode?.constraints = [SCNBillboardConstraint()]
         
         if contact.nodeA.name == "Bullet" {
-            lastContactNode = contact.nodeB
+            self.lastContactNode = contact.nodeB
         } else {
-            lastContactNode = contact.nodeA
+            self.lastContactNode = contact.nodeA
         }
         
-        lastContactNode.scale = SCNVector3(x: 0.15, y: 0.15, z: 0.15)
+        let i = 0.0005
+        self.x -= i
+        self.y -= i
+        self.z -= i
+        print("1")
+        self.lastContactNode.scale = SCNVector3(x: Float(self.x), y: Float(self.y), z: Float(self.z))
+        if self.x < 0 {
+            //let thisNode = thisScene.rootNode.childNodeWithName("someGraphic", recursively: true)
+            let thisNode = self.sceneView.scene.rootNode.childNode(withName: "mushroom", recursively: true)
+            thisNode?.removeFromParentNode()
+        }
         
         return
         
@@ -442,12 +458,71 @@ class MainViewController: UIViewController, SCNPhysicsContactDelegate {
 			textManager.showAlert(title: title, message: message, actions: [])
 		}
 	}
+    
+    //////////////////COPIED FROM BELOW////////////////////////////
+    func renderer(_ renderer: SCNSceneRenderer, updateAtTime time: TimeInterval) {
+        refreshFeaturePoints()
+        //let thisNode = self.sceneView.scene.rootNode.childNode(withName: "mushroom", recursively: true)
+        
+        self.lastContactNode?.position.z += 0.0045
+        //node.transform = node.presentationNode.transform
+        
+//        self.x += 0.00015
+//        self.y += 0.00015
+//        self.z += 0.00015
+//
+//        DispatchQueue.main.async {
+//            self.lastContactNode?.scale = SCNVector3(x: Float(self.x), y: Float(self.y), z: Float(self.z))
+//        }
+        
+        DispatchQueue.main.async {
+            
+            self.updateFocusSquare()
+            self.hitTestVisualization?.render()
+            
+            // If light estimation is enabled, update the intensity of the model's lights and the environment map
+            if let lightEstimate = self.session.currentFrame?.lightEstimate {
+                self.sceneView.enableEnvironmentMapWithIntensity(lightEstimate.ambientIntensity / 40)
+            } else {
+                self.sceneView.enableEnvironmentMapWithIntensity(25)
+            }
+        }
+    }
+    
+    func renderer(_ renderer: SCNSceneRenderer, didAdd node: SCNNode, for anchor: ARAnchor) {
+        DispatchQueue.main.async {
+            if let planeAnchor = anchor as? ARPlaneAnchor {
+                self.addPlane(node: node, anchor: planeAnchor)
+                self.checkIfObjectShouldMoveOntoPlane(anchor: planeAnchor)
+            }
+        }
+    }
+    
+    func renderer(_ renderer: SCNSceneRenderer, didUpdate node: SCNNode, for anchor: ARAnchor) {
+        DispatchQueue.main.async {
+            if let planeAnchor = anchor as? ARPlaneAnchor {
+                if let plane = self.planes[planeAnchor] {
+                    plane.update(planeAnchor)
+                }
+                self.checkIfObjectShouldMoveOntoPlane(anchor: planeAnchor)
+            }
+        }
+    }
+    
+    func renderer(_ renderer: SCNSceneRenderer, didRemove node: SCNNode, for anchor: ARAnchor) {
+        DispatchQueue.main.async {
+            if let planeAnchor = anchor as? ARPlaneAnchor, let plane = self.planes.removeValue(forKey: planeAnchor) {
+                plane.removeFromParentNode()
+            }
+        }
+    }
 }
 
 // MARK: - ARKit / ARSCNView
 extension MainViewController {
 	func setupScene() {
 		sceneView.setUp(viewController: self, session: session)
+        sceneView.scene.physicsWorld.contactDelegate = self
 		DispatchQueue.main.async {
 			self.screenCenter = self.sceneView.bounds.mid
 		}
@@ -609,51 +684,60 @@ extension MainViewController :VirtualObjectSelectionViewControllerDelegate {
 }
 
 // MARK: - ARSCNViewDelegate
-extension MainViewController :ARSCNViewDelegate {
-	func renderer(_ renderer: SCNSceneRenderer, updateAtTime time: TimeInterval) {
-		refreshFeaturePoints()
-
-		DispatchQueue.main.async {
-			self.updateFocusSquare()
-			self.hitTestVisualization?.render()
-
-			// If light estimation is enabled, update the intensity of the model's lights and the environment map
-			if let lightEstimate = self.session.currentFrame?.lightEstimate {
-				self.sceneView.enableEnvironmentMapWithIntensity(lightEstimate.ambientIntensity / 40)
-			} else {
-				self.sceneView.enableEnvironmentMapWithIntensity(25)
-			}
-		}
-	}
-
-	func renderer(_ renderer: SCNSceneRenderer, didAdd node: SCNNode, for anchor: ARAnchor) {
-		DispatchQueue.main.async {
-			if let planeAnchor = anchor as? ARPlaneAnchor {
-				self.addPlane(node: node, anchor: planeAnchor)
-				self.checkIfObjectShouldMoveOntoPlane(anchor: planeAnchor)
-			}
-		}
-	}
-
-	func renderer(_ renderer: SCNSceneRenderer, didUpdate node: SCNNode, for anchor: ARAnchor) {
-		DispatchQueue.main.async {
-			if let planeAnchor = anchor as? ARPlaneAnchor {
-				if let plane = self.planes[planeAnchor] {
-					plane.update(planeAnchor)
-				}
-				self.checkIfObjectShouldMoveOntoPlane(anchor: planeAnchor)
-			}
-		}
-	}
-
-	func renderer(_ renderer: SCNSceneRenderer, didRemove node: SCNNode, for anchor: ARAnchor) {
-		DispatchQueue.main.async {
-			if let planeAnchor = anchor as? ARPlaneAnchor, let plane = self.planes.removeValue(forKey: planeAnchor) {
-				plane.removeFromParentNode()
-			}
-		}
-	}
-}
+//extension MainViewController :ARSCNViewDelegate {
+//    func renderer(_ renderer: SCNSceneRenderer, updateAtTime time: TimeInterval) {
+//        refreshFeaturePoints()
+//        let thisNode = self.sceneView.scene.rootNode.childNode(withName: "mushroom", recursively: true)
+//        thisNode?.position.z += 1.5
+//
+//        //            self.x += 0.0015
+//        //            self.y += 0.0015
+//        //            self.z += 0.0015
+//        //
+//        //            thisNode?.scale = SCNVector3(x: Float(self.x), y: Float(self.y), z: Float(self.z))
+//
+//        DispatchQueue.main.async {
+//
+//            self.updateFocusSquare()
+//            self.hitTestVisualization?.render()
+//
+//            // If light estimation is enabled, update the intensity of the model's lights and the environment map
+//            if let lightEstimate = self.session.currentFrame?.lightEstimate {
+//                self.sceneView.enableEnvironmentMapWithIntensity(lightEstimate.ambientIntensity / 40)
+//            } else {
+//                self.sceneView.enableEnvironmentMapWithIntensity(25)
+//            }
+//        }
+//    }
+//
+//    func renderer(_ renderer: SCNSceneRenderer, didAdd node: SCNNode, for anchor: ARAnchor) {
+//        DispatchQueue.main.async {
+//            if let planeAnchor = anchor as? ARPlaneAnchor {
+//                self.addPlane(node: node, anchor: planeAnchor)
+//                self.checkIfObjectShouldMoveOntoPlane(anchor: planeAnchor)
+//            }
+//        }
+//    }
+//
+//    func renderer(_ renderer: SCNSceneRenderer, didUpdate node: SCNNode, for anchor: ARAnchor) {
+//        DispatchQueue.main.async {
+//            if let planeAnchor = anchor as? ARPlaneAnchor {
+//                if let plane = self.planes[planeAnchor] {
+//                    plane.update(planeAnchor)
+//                }
+//                self.checkIfObjectShouldMoveOntoPlane(anchor: planeAnchor)
+//            }
+//        }
+//    }
+//
+//    func renderer(_ renderer: SCNSceneRenderer, didRemove node: SCNNode, for anchor: ARAnchor) {
+//        DispatchQueue.main.async {
+//            if let planeAnchor = anchor as? ARPlaneAnchor, let plane = self.planes.removeValue(forKey: planeAnchor) {
+//                plane.removeFromParentNode()
+//            }
+//        }
+//    }
+//}
 
 // MARK: Virtual Object Manipulation
 extension MainViewController {
